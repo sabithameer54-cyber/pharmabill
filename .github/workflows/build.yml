@@ -21,13 +21,13 @@ jobs:
     steps:
 
       # =========================================================
-      # 1. Checkout
+      # 1. Checkout repository
       # =========================================================
       - name: Checkout
         uses: actions/checkout@v4
 
       # =========================================================
-      # 2. Extract ZIP if a ZIP exists
+      # 2. Extract PharmaBill ZIP if present
       # =========================================================
       - name: Extract PharmaBill ZIP
         shell: bash
@@ -44,8 +44,10 @@ jobs:
           if [ -n "$ZIP_FILE" ]; then
             echo "ZIP found: $ZIP_FILE"
             unzip -o "$ZIP_FILE" -d extracted
+            echo "ZIP extraction completed."
           else
-            echo "No ZIP found. Using repository files."
+            echo "No ZIP found."
+            echo "Using repository files directly."
           fi
 
       # =========================================================
@@ -74,8 +76,11 @@ jobs:
             PROJECT_DIR="."
           fi
 
-          echo "package.json: $PACKAGE_JSON"
-          echo "Project directory: $PROJECT_DIR"
+          echo "package.json found at:"
+          echo "$PACKAGE_JSON"
+
+          echo "Project directory:"
+          echo "$PROJECT_DIR"
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
@@ -89,7 +94,7 @@ jobs:
 
           test -f "$PROJECT_DIR/package.json"
 
-          echo "Project verified."
+          echo "Project verified successfully."
           echo ""
           echo "Project files:"
           ls -la "$PROJECT_DIR"
@@ -104,7 +109,7 @@ jobs:
           package-manager-cache: false
 
       # =========================================================
-      # 6. Check Node/npm
+      # 6. Check Node.js
       # =========================================================
       - name: Check Node.js
         run: |
@@ -113,8 +118,6 @@ jobs:
 
       # =========================================================
       # 7. Install dependencies
-      #
-      # --legacy-peer-deps fixes npm ERESOLVE peer conflicts.
       # =========================================================
       - name: Install dependencies
         working-directory: ${{ env.PROJECT_DIR }}
@@ -139,7 +142,8 @@ jobs:
           if npm run | grep -q "lint"; then
             npm run lint
           else
-            echo "No lint script found. Skipping."
+            echo "No lint script found."
+            echo "Skipping type check."
           fi
 
       # =========================================================
@@ -154,7 +158,7 @@ jobs:
           npm run build
 
       # =========================================================
-      # 10. Verify build
+      # 10. Verify build output
       # =========================================================
       - name: Verify build
         working-directory: ${{ env.PROJECT_DIR }}
@@ -176,12 +180,24 @@ jobs:
           find dist -maxdepth 3 -type f | sort
 
       # =========================================================
-      # 11. Summary
+      # 11. Upload build artifact
+      # =========================================================
+      - name: Upload PharmaBill artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PharmaBill-build
+          path: ${{ env.PROJECT_DIR }}/dist
+          if-no-files-found: error
+          retention-days: 30
+
+      # =========================================================
+      # 12. Build summary
       # =========================================================
       - name: Build summary
         run: |
           echo "========================================"
           echo "PharmaBill CI completed successfully."
+          echo "Artifact: PharmaBill-build"
           echo "Node.js: $(node --version)"
           echo "npm: $(npm --version)"
           echo "========================================"
