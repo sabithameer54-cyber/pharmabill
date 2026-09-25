@@ -2,26 +2,49 @@ name: Build PharmaBill
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - master
   pull_request:
-    branches: [main]
+    branches:
+      - main
+      - master
 
 jobs:
   build:
+    name: Build
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Checkout source code
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 2. Install Node.js
+      # IMPORTANT:
+      # package.json exists, but there is no package-lock.json.
+      # Therefore npm caching is disabled.
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          package-manager-cache: false
 
+      # 3. Install dependencies
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
+      # 4. TypeScript check
+      - name: Type check
+        run: npm run lint
+
+      # 5. Build frontend + server
       - name: Build
         run: npm run build
+
+      # 6. Show build output
+      - name: Verify build
+        run: |
+          echo "Build completed successfully."
+          ls -la
+          ls -la dist
