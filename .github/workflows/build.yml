@@ -17,109 +17,39 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # --------------------------------------------------
-      # 1. Checkout repository
-      # --------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v4
 
-      # --------------------------------------------------
-      # 2. Find the project directory
-      # --------------------------------------------------
-      - name: Locate package.json
-        shell: bash
+      - name: Show repository files
         run: |
+          echo "Current directory:"
+          pwd
+
           echo "Repository contents:"
           ls -la
 
-          echo ""
-          echo "Searching for package.json..."
+          echo "Checking package.json:"
+          test -f package.json
+          echo "package.json FOUND"
 
-          PACKAGE_JSON=$(find . -type f -name "package.json" \
-            -not -path "./node_modules/*" \
-            | head -n 1)
-
-          if [ -z "$PACKAGE_JSON" ]; then
-            echo "ERROR: package.json was not found."
-            echo ""
-            echo "Your repository must contain the PharmaBill project files."
-            exit 1
-          fi
-
-          PROJECT_DIR=$(dirname "$PACKAGE_JSON")
-
-          if [ "$PROJECT_DIR" = "." ]; then
-            PROJECT_DIR="."
-          else
-            PROJECT_DIR="${PROJECT_DIR#./}"
-          fi
-
-          echo "package.json found at: $PACKAGE_JSON"
-          echo "Project directory: $PROJECT_DIR"
-
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-      # --------------------------------------------------
-      # 3. Setup Node.js
-      # --------------------------------------------------
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           package-manager-cache: false
 
-      # --------------------------------------------------
-      # 4. Check project files
-      # --------------------------------------------------
-      - name: Check project
-        shell: bash
-        run: |
-          echo "Project directory:"
-          echo "$PROJECT_DIR"
-
-          echo ""
-          echo "Files:"
-          ls -la "$PROJECT_DIR"
-
-          echo ""
-          echo "package.json:"
-          cat "$PROJECT_DIR/package.json"
-
-      # --------------------------------------------------
-      # 5. Install dependencies
-      # --------------------------------------------------
       - name: Install dependencies
-        working-directory: ${{ env.PROJECT_DIR }}
         run: npm install
 
-      # --------------------------------------------------
-      # 6. TypeScript check
-      # --------------------------------------------------
       - name: Type check
-        working-directory: ${{ env.PROJECT_DIR }}
         run: npm run lint
 
-      # --------------------------------------------------
-      # 7. Build application
-      # --------------------------------------------------
       - name: Build
-        working-directory: ${{ env.PROJECT_DIR }}
         run: npm run build
 
-      # --------------------------------------------------
-      # 8. Verify build
-      # --------------------------------------------------
       - name: Verify build
-        working-directory: ${{ env.PROJECT_DIR }}
-        shell: bash
         run: |
-          echo "Build completed successfully."
-
-          if [ -d "dist" ]; then
-            echo ""
-            echo "dist directory:"
-            ls -la dist
-          else
-            echo "ERROR: dist directory was not created."
-            exit 1
-          fi
+          echo "Build successful!"
+          echo ""
+          echo "Build output:"
+          ls -la dist
