@@ -1,6 +1,6 @@
-name: PharmaBill APK Build
+name: Build PharmaBill Android APK
 
-run-name: Build PharmaBill APK ${{ github.run_number }}
+run-name: PharmaBill APK Build #${{ github.run_number }}
 
 on:
   push:
@@ -29,38 +29,37 @@ jobs:
       # ============================================================
       # 2. SHOW REPOSITORY
       # ============================================================
-      - name: Show repository
+      - name: Show repository files
         shell: bash
         run: |
           set -e
 
-          echo "=========================================="
+          echo "============================================"
           echo "PHARMABILL APK BUILD"
-          echo "=========================================="
+          echo "============================================"
 
           echo "Repository: $GITHUB_REPOSITORY"
           echo "Branch:     $GITHUB_REF_NAME"
           echo "Commit:     $GITHUB_SHA"
 
           echo ""
-          echo "Repository files:"
-
+          echo "Repository contents:"
           find . -maxdepth 5 -type f \
             ! -path "./.git/*" \
             | sort
 
       # ============================================================
-      # 3. EXTRACT PHARMABILL.ZIP
+      # 3. FIND AND EXTRACT PHARMABILL.ZIP
       # ============================================================
-      - name: Extract PharmaBill project
+      - name: Extract PharmaBill ZIP
         id: extract
         shell: bash
         run: |
           set -e
 
-          echo "=========================================="
-          echo "EXTRACTING PHARMABILL.ZIP"
-          echo "=========================================="
+          echo "============================================"
+          echo "FINDING PHARMABILL.ZIP"
+          echo "============================================"
 
           ZIP_FILE=""
 
@@ -80,7 +79,7 @@ jobs:
             echo "ERROR: PharmaBill.zip was not found."
 
             echo ""
-            echo "Repository files:"
+            echo "Repository contents:"
             find "$GITHUB_WORKSPACE" \
               -maxdepth 8 \
               -type f \
@@ -90,7 +89,7 @@ jobs:
             exit 1
           fi
 
-          echo "ZIP found:"
+          echo "ZIP FILE:"
           echo "$ZIP_FILE"
 
           PROJECT_ROOT="$GITHUB_WORKSPACE/pharmabill-project"
@@ -99,21 +98,21 @@ jobs:
           mkdir -p "$PROJECT_ROOT"
 
           echo ""
-          echo "ZIP contents:"
+          echo "ZIP CONTENTS:"
           unzip -l "$ZIP_FILE" | head -300
 
           echo ""
-          echo "Extracting ZIP..."
+          echo "EXTRACTING..."
 
           unzip -q "$ZIP_FILE" -d "$PROJECT_ROOT"
 
           echo ""
-          echo "Extraction completed."
+          echo "EXTRACTION COMPLETE."
 
           echo ""
-          echo "Extracted files:"
+          echo "EXTRACTED FILES:"
           find "$PROJECT_ROOT" \
-            -maxdepth 6 \
+            -maxdepth 8 \
             -type f \
             | sort \
             | head -500
@@ -131,9 +130,9 @@ jobs:
 
           PROJECT_ROOT="${{ steps.extract.outputs.project_root }}"
 
-          echo "=========================================="
+          echo "============================================"
           echo "SEARCHING FOR package.json"
-          echo "=========================================="
+          echo "============================================"
 
           PACKAGE_JSON=$(find "$PROJECT_ROOT" \
             -type f \
@@ -142,13 +141,12 @@ jobs:
             | head -1)
 
           if [ -z "$PACKAGE_JSON" ]; then
-            echo ""
-            echo "ERROR: package.json was not found inside PharmaBill.zip."
+            echo "ERROR: package.json was not found."
 
             echo ""
             echo "Extracted files:"
             find "$PROJECT_ROOT" \
-              -maxdepth 10 \
+              -maxdepth 12 \
               -type f \
               | sort
 
@@ -157,18 +155,17 @@ jobs:
 
           PROJECT_DIR=$(dirname "$PACKAGE_JSON")
 
-          echo ""
-          echo "package.json found:"
+          echo "package.json:"
           echo "$PACKAGE_JSON"
 
           echo ""
-          echo "Project directory:"
+          echo "PROJECT DIRECTORY:"
           echo "$PROJECT_DIR"
 
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
       # ============================================================
-      # 5. SETUP NODE
+      # 5. NODE.JS
       # ============================================================
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -177,19 +174,19 @@ jobs:
           cache: ""
 
       # ============================================================
-      # 6. CHECK PROJECT
+      # 6. CHECK NODE PROJECT
       # ============================================================
-      - name: Check project
+      - name: Check Node project
         working-directory: ${{ steps.project.outputs.project_dir }}
         shell: bash
         run: |
           set -e
 
-          echo "=========================================="
-          echo "PHARMABILL PROJECT"
-          echo "=========================================="
+          echo "============================================"
+          echo "NODE PROJECT"
+          echo "============================================"
 
-          echo "Project directory:"
+          echo "Directory:"
           pwd
 
           echo ""
@@ -201,16 +198,8 @@ jobs:
           npm --version
 
           echo ""
-          echo "package.json:"
+          echo "PACKAGE.JSON:"
           cat package.json
-
-          echo ""
-          echo "Important files:"
-
-          find . -maxdepth 3 -type f \
-            ! -path "./node_modules/*" \
-            | sort \
-            | head -300
 
       # ============================================================
       # 7. INSTALL NPM DEPENDENCIES
@@ -221,19 +210,19 @@ jobs:
         run: |
           set -e
 
-          echo "=========================================="
+          echo "============================================"
           echo "INSTALLING NPM DEPENDENCIES"
-          echo "=========================================="
+          echo "============================================"
 
           if [ -f package-lock.json ]; then
-            echo "package-lock.json found."
+            echo "Using package-lock.json"
 
             npm ci \
               --legacy-peer-deps \
               --no-audit \
               --no-fund
           else
-            echo "package-lock.json not found."
+            echo "No package-lock.json found."
 
             npm install \
               --legacy-peer-deps \
@@ -251,20 +240,24 @@ jobs:
         run: |
           set -e
 
+          echo "============================================"
+          echo "DETECTING CAPACITOR"
+          echo "============================================"
+
           CAP_VERSION=$(node - <<'NODE'
           const p = require('./package.json');
 
-          const v =
+          const version =
             p.dependencies?.["@capacitor/core"] ||
             p.devDependencies?.["@capacitor/core"] ||
             "";
 
-          process.stdout.write(v);
+          process.stdout.write(version);
           NODE
           )
 
-          echo "Detected Capacitor version:"
-          echo "${CAP_VERSION:-NOT INSTALLED}"
+          echo "Detected Capacitor:"
+          echo "${CAP_VERSION:-NOT FOUND}"
 
           CAP_MAJOR=$(echo "$CAP_VERSION" | grep -oE '[0-9]+' | head -1 || true)
 
@@ -272,7 +265,8 @@ jobs:
             CAP_MAJOR="7"
           fi
 
-          echo "Capacitor major version: $CAP_MAJOR"
+          echo "Capacitor major version:"
+          echo "$CAP_MAJOR"
 
           echo "cap_major=$CAP_MAJOR" >> "$GITHUB_OUTPUT"
 
@@ -287,9 +281,9 @@ jobs:
 
           CAP_MAJOR="${{ steps.capacitor.outputs.cap_major }}"
 
-          echo "=========================================="
+          echo "============================================"
           echo "INSTALLING CAPACITOR"
-          echo "=========================================="
+          echo "============================================"
 
           npm install \
             "@capacitor/core@${CAP_MAJOR}" \
@@ -300,18 +294,18 @@ jobs:
             --no-fund
 
           npm install \
-            --save-dev \
             "@capacitor/cli@${CAP_MAJOR}" \
+            --save-dev \
             --legacy-peer-deps \
             --no-audit \
             --no-fund
 
           echo ""
-          echo "Capacitor version:"
+          echo "Capacitor CLI:"
           npx cap --version
 
       # ============================================================
-      # 10. CREATE CAPACITOR CONFIG
+      # 10. CAPACITOR CONFIGURATION
       # ============================================================
       - name: Prepare Capacitor configuration
         working-directory: ${{ steps.project.outputs.project_dir }}
@@ -319,9 +313,9 @@ jobs:
         run: |
           set -e
 
-          echo "=========================================="
+          echo "============================================"
           echo "CAPACITOR CONFIGURATION"
-          echo "=========================================="
+          echo "============================================"
 
           rm -f capacitor.config.ts
           rm -f capacitor.config.js
@@ -338,7 +332,6 @@ jobs:
           EOF
 
           echo ""
-          echo "capacitor.config.json:"
           cat capacitor.config.json
 
       # ============================================================
@@ -350,17 +343,17 @@ jobs:
         run: |
           set -e
 
-          echo "=========================================="
+          echo "============================================"
           echo "BUILDING WEB APPLICATION"
-          echo "=========================================="
+          echo "============================================"
 
           if npm run | grep -qE '^[[:space:]]+build'; then
             npm run build
           else
-            echo "ERROR: No build script found."
+            echo "ERROR: package.json has no build script."
 
             echo ""
-            echo "Available scripts:"
+            echo "Available npm scripts:"
             npm run
 
             exit 1
@@ -382,8 +375,10 @@ jobs:
           fi
 
           echo ""
-          echo "dist contents:"
-          find dist -type f | sort | head -300
+          echo "DIST CONTENTS:"
+          find dist -type f \
+            | sort \
+            | head -300
 
       # ============================================================
       # 12. JAVA 17
@@ -402,17 +397,21 @@ jobs:
         run: |
           set -e
 
-          echo "=========================================="
+          echo "============================================"
           echo "ANDROID SDK"
-          echo "=========================================="
+          echo "============================================"
 
           ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
 
           export ANDROID_HOME
           export ANDROID_SDK_ROOT="$ANDROID_HOME"
 
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          echo "ANDROID_HOME:"
+          echo "$ANDROID_HOME"
+
+          echo ""
+          echo "ANDROID_SDK_ROOT:"
+          echo "$ANDROID_SDK_ROOT"
 
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
 
@@ -450,7 +449,8 @@ jobs:
             exit 1
           fi
 
-          echo "sdkmanager:"
+          echo ""
+          echo "SDKMANAGER:"
           echo "$SDKMANAGER"
 
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
@@ -471,7 +471,7 @@ jobs:
             "build-tools;35.0.0"
 
           echo ""
-          echo "Android SDK packages installed."
+          echo "ANDROID SDK READY."
 
       # ============================================================
       # 14. CREATE ANDROID PROJECT
@@ -482,13 +482,14 @@ jobs:
         run: |
           set -e
 
-          echo "=========================================="
+          echo "============================================"
           echo "ANDROID PROJECT"
-          echo "=========================================="
+          echo "============================================"
 
           if [ -d "android" ]; then
             echo "Android project already exists."
           else
+            echo "Android project does not exist."
             echo "Creating Android project..."
 
             npx cap add android
@@ -500,7 +501,7 @@ jobs:
           fi
 
           echo ""
-          echo "Android project exists."
+          echo "Android project ready."
 
       # ============================================================
       # 15. CAPACITOR SYNC
@@ -511,14 +512,14 @@ jobs:
         run: |
           set -e
 
-          echo "=========================================="
+          echo "============================================"
           echo "CAPACITOR SYNC"
-          echo "=========================================="
+          echo "============================================"
 
           npx cap sync android
 
       # ============================================================
-      # 16. CHECK ANDROID PROJECT
+      # 16. CHECK ANDROID GRADLE PROJECT
       # ============================================================
       - name: Check Android Gradle project
         working-directory: ${{ steps.project.outputs.project_dir }}/android
@@ -526,105 +527,141 @@ jobs:
         run: |
           set -e
 
-          echo "=========================================="
+          echo "============================================"
           echo "ANDROID GRADLE PROJECT"
-          echo "=========================================="
+          echo "============================================"
 
           chmod +x gradlew
 
           echo ""
-          echo "Java:"
+          echo "JAVA:"
           java -version
 
           echo ""
-          echo "Gradle:"
+          echo "GRADLE:"
           ./gradlew --version
 
           echo ""
-          echo "Android project files:"
+          echo "ANDROID PROJECT FILES:"
           find . -maxdepth 4 -type f \
             ! -path "*/build/*" \
             | sort \
             | head -400
 
       # ============================================================
-      # 17. BUILD DEBUG APK
-      #
-      # IMPORTANT:
-      # The build log is saved even when Gradle fails.
+      # 17. BUILD APK
       # ============================================================
       - name: Build debug APK
+        id: gradle_build
         working-directory: ${{ steps.project.outputs.project_dir }}/android
         shell: bash
         run: |
           set +e
 
-          echo "=========================================="
+          echo "============================================"
           echo "BUILDING PHARMABILL APK"
-          echo "=========================================="
+          echo "============================================"
 
           chmod +x gradlew
+
+          LOG="$GITHUB_WORKSPACE/gradle-build.log"
+
+          echo "Gradle log:"
+          echo "$LOG"
 
           ./gradlew assembleDebug \
             --no-daemon \
             --stacktrace \
             --info \
             --warning-mode all \
-            2>&1 | tee "$GITHUB_WORKSPACE/gradle-build.log"
+            > "$LOG" 2>&1
 
-          BUILD_EXIT=${PIPESTATUS[0]}
-
-          echo ""
-          echo "=========================================="
-          echo "GRADLE ERROR SUMMARY"
-          echo "=========================================="
+          BUILD_EXIT=$?
 
           echo ""
-          echo "---------- WHAT WENT WRONG ----------"
+          echo "============================================"
+          echo "GRADLE BUILD RESULT"
+          echo "============================================"
 
-          grep -A 40 -B 10 \
-            "What went wrong:" \
-            "$GITHUB_WORKSPACE/gradle-build.log" \
-            || true
-
-          echo ""
-          echo "---------- FAILED TASKS ----------"
-
-          grep -E \
-            "FAILURE:|Execution failed|FAILED|Could not|error:" \
-            "$GITHUB_WORKSPACE/gradle-build.log" \
-            | tail -150 \
-            || true
-
-          echo ""
-          echo "---------- CAUSED BY ----------"
-
-          grep -E \
-            "Caused by:" \
-            "$GITHUB_WORKSPACE/gradle-build.log" \
-            | tail -100 \
-            || true
-
-          echo ""
-          echo "---------- LAST 150 LINES ----------"
-
-          tail -150 "$GITHUB_WORKSPACE/gradle-build.log"
-
-          echo ""
-          echo "=========================================="
+          echo "Exit code: $BUILD_EXIT"
 
           if [ "$BUILD_EXIT" -ne 0 ]; then
+
+            echo ""
+            echo "============================================"
+            echo "ACTUAL GRADLE ERROR"
+            echo "============================================"
+
+            echo ""
+            echo "---------- FAILURE ----------"
+
+            grep -n -A 60 -B 15 \
+              "FAILURE:" \
+              "$LOG" \
+              | tail -150 || true
+
+            echo ""
+            echo "---------- EXECUTION FAILED ----------"
+
+            grep -n -A 50 -B 15 \
+              "Execution failed for task" \
+              "$LOG" \
+              | tail -150 || true
+
+            echo ""
+            echo "---------- AAPT / ANDROID ----------"
+
+            grep -niE \
+              "AAPT|AAPT2|Android resource|resource .* not found|Manifest merger|duplicate|compileSdk|buildTools|SDK" \
+              "$LOG" \
+              | tail -150 || true
+
+            echo ""
+            echo "---------- JAVA / KOTLIN ----------"
+
+            grep -niE \
+              "Kotlin|kotlinc|javac|Java compilation|Compilation failed|Unresolved reference" \
+              "$LOG" \
+              | tail -150 || true
+
+            echo ""
+            echo "---------- DEPENDENCY ERRORS ----------"
+
+            grep -niE \
+              "Could not resolve|Could not find|Could not determine|dependency|dependencies" \
+              "$LOG" \
+              | tail -150 || true
+
+            echo ""
+            echo "---------- CAUSED BY ----------"
+
+            grep -n -A 30 \
+              "Caused by:" \
+              "$LOG" \
+              | tail -150 || true
+
+            echo ""
+            echo "============================================"
+            echo "LAST 250 LINES"
+            echo "============================================"
+
+            tail -250 "$LOG"
+
+            echo ""
+            echo "============================================"
             echo "APK BUILD FAILED"
-            echo "Gradle exit code: $BUILD_EXIT"
+            echo "============================================"
+
             exit "$BUILD_EXIT"
           fi
 
+          echo ""
+          echo "============================================"
           echo "APK BUILD SUCCESSFUL"
+          echo "============================================"
 
       # ============================================================
       # 18. ALWAYS UPLOAD GRADLE LOG
-      #
-      # This runs even if Build debug APK fails.
       # ============================================================
       - name: Upload Gradle build log
         if: always()
@@ -636,7 +673,7 @@ jobs:
           retention-days: 30
 
       # ============================================================
-      # 19. FIND GENERATED APK
+      # 19. FIND APK
       # ============================================================
       - name: Find generated APK
         id: apk
@@ -646,9 +683,9 @@ jobs:
         run: |
           set -e
 
-          echo "=========================================="
+          echo "============================================"
           echo "FINDING GENERATED APK"
-          echo "=========================================="
+          echo "============================================"
 
           APK=$(find android \
             -type f \
@@ -661,26 +698,27 @@ jobs:
             echo "ERROR: APK was not generated."
 
             echo ""
-            echo "APK files:"
+            echo "Searching all APK files:"
             find android \
               -type f \
               -name "*.apk" \
-              2>/dev/null || true
+              2>/dev/null \
+              | sort || true
 
             echo ""
-            echo "Build outputs:"
+            echo "Searching build outputs:"
             find android \
               -type f \
               -path "*/build/outputs/*" \
               2>/dev/null \
               | sort \
-              | head -500
+              | head -500 || true
 
             exit 1
           fi
 
           echo ""
-          echo "APK found:"
+          echo "APK FOUND:"
           echo "$APK"
 
           mkdir -p release
@@ -688,7 +726,7 @@ jobs:
           cp "$APK" release/PharmaBill-debug.apk
 
           echo ""
-          echo "Final APK:"
+          echo "FINAL APK:"
           ls -lh release/PharmaBill-debug.apk
 
       # ============================================================
@@ -715,33 +753,31 @@ jobs:
           body: |
             # PharmaBill Android APK
 
-            Build number:
-            ${{ github.run_number }}
+            Build: ${{ github.run_number }}
 
-            Commit:
-            ${{ github.sha }}
+            Commit: ${{ github.sha }}
 
-            APK:
+            File:
             PharmaBill-debug.apk
           files: ${{ steps.project.outputs.project_dir }}/release/PharmaBill-debug.apk
           generate_release_notes: false
 
       # ============================================================
-      # 22. FINAL SUCCESS
+      # 22. SUCCESS MESSAGE
       # ============================================================
       - name: Build successful
         if: success()
         shell: bash
         run: |
           echo ""
-          echo "=========================================="
-          echo " PHARMABILL APK BUILD SUCCESSFUL"
-          echo "=========================================="
+          echo "============================================"
+          echo "PHARMABILL APK BUILD SUCCESSFUL"
+          echo "============================================"
           echo ""
           echo "APK: PharmaBill-debug.apk"
           echo ""
           echo "The APK is available in:"
-          echo "1. GitHub Actions Artifacts"
-          echo "2. GitHub Releases"
+          echo "  GitHub Actions > Artifacts"
+          echo "  GitHub Releases"
           echo ""
-          echo "=========================================="
+          echo "============================================"
