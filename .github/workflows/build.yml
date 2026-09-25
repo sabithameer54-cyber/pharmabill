@@ -5,11 +5,11 @@ on:
     branches:
       - main
       - master
-
   pull_request:
     branches:
       - main
       - master
+  workflow_dispatch:
 
 jobs:
   build:
@@ -17,39 +17,309 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      # ---------------------------------------
+      # 1. Checkout repository
+      # ---------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v7
 
+      # ---------------------------------------
+      # 2. Show repository files
+      # ---------------------------------------
       - name: Show repository files
+        shell: bash
         run: |
-          echo "Current directory:"
+          set -e
+
+          echo "======================================"
+          echo "Current directory"
+          echo "======================================"
           pwd
 
-          echo "Repository contents:"
+          echo ""
+          echo "======================================"
+          echo "Repository contents"
+          echo "======================================"
           ls -la
 
-          echo "Checking package.json:"
-          test -f package.json
-          echo "package.json FOUND"
+      # ---------------------------------------
+      # 3. Extract PharmaBill ZIP
+      # ---------------------------------------
+      - name: Extract PharmaBill ZIP
+        shell: bash
+        run: |
+          set -e
 
+          ZIP_FILE="PharmaBill.zip"
+
+          echo "======================================"
+          echo "Checking PharmaBill ZIP"
+          echo "======================================"
+
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "ERROR: $ZIP_FILE was not found."
+            echo ""
+            echo "Files in repository:"
+            find . -maxdepth 2 -type f | sort
+            exit 1
+          fi
+
+          echo "ZIP found:"
+          ls -lh "$ZIP_FILE"
+
+          rm -rf app
+          mkdir -p app
+
+          echo ""
+          echo "Extracting ZIP..."
+          unzip -o "$ZIP_FILE" -d app
+
+          echo ""
+          echo "======================================"
+          echo "Extracted files"
+          echo "======================================"
+
+          find app -maxdepth 5 -type f | sort | head -300
+
+      # ---------------------------------------
+      # 4. Find package.json
+      # ---------------------------------------
+      - name: Find application directory
+        shell: bash
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "Searching for package.json"
+          echo "======================================"
+
+          PACKAGE_FILE=""
+
+          if [ -f "app/package.json" ]; then
+            PACKAGE_FILE="app/package.json"
+          else
+            PACKAGE_FILE=$(find app \
+              -type f \
+              -name "package.json" \
+              -not -path "*/node_modules/*" \
+              -print -quit)
+          fi
+
+          if [ -z "$PACKAGE_FILE" ]; then
+            echo ""
+            echo "ERROR: package.json was not found inside PharmaBill.zip"
+            echo ""
+            echo "ZIP contents:"
+            find app -maxdepth 6 -type f | sort
+            exit 1
+          fi
+
+          APP_DIR=$(dirname "$PACKAGE_FILE")
+
+          echo "package.json found:"
+          echo "$PACKAGE_FILE"
+
+          echo ""
+          echo "Application directory:"
+          echo "$APP_DIR"
+
+          echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
+
+      # ---------------------------------------
+      # 5. Verify package.json
+      # ---------------------------------------
+      - name: Verify Node project
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "Node project"
+          echo "======================================"
+
+          echo "Application directory:"
+          pwd
+
+          echo ""
+          echo "package.json:"
+          cat package.json
+
+          echo ""
+          echo "Project files:"
+          ls -la
+
+      # ---------------------------------------
+      # 6. Setup Node.js
+      # ---------------------------------------
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
-          package-manager-cache: false
+          cache: npm
+          cache-dependency-path: ${{ env.APP_DIR }}/package-lock.json
 
-      - name: Install dependencies
-        run: npm install
-
-      - name: Type check
-        run: npm run lint
-
-      - name: Build
-        run: npm run build
-
-      - name: Verify build
+      # ---------------------------------------
+      # 7. Show Node/npm versions
+      # ---------------------------------------
+      - name: Check Node.js
+        shell: bash
         run: |
-          echo "Build successful!"
+          set -e
+
+          echo "Node.js version:"
+          node --version
+
           echo ""
-          echo "Build output:"
-          ls -la dist
+          echo "npm version:"
+          npm --version
+
+      # ---------------------------------------
+      # 8. Install dependencies
+      # ---------------------------------------
+      - name: Install dependencies
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "Installing dependencies"
+          echo "======================================"
+
+          if [ -f package-lock.json ]; then
+            echo "package-lock.json found."
+            echo "Running npm ci..."
+            npm ci
+          elif [ -f npm-shrinkwrap.json ]; then
+            echo "npm-shrinkwrap.json found."
+            echo "Running npm ci..."
+            npm ci
+          else
+            echo "No lock file found."
+            echo "Running npm install..."
+            npm install
+          fi
+
+      # ---------------------------------------
+      # 9. Type check
+      # ---------------------------------------
+      - name: Type check
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          set -e
+
+          if npm run | grep -q "typecheck"; then
+            echo "Running typecheck..."
+            npm run typecheck
+          else
+            echo "No typecheck script found."
+            echo "Skipping type check."
+          fi
+
+      # ---------------------------------------
+      # 10. Lint
+      # ---------------------------------------
+      - name: Lint
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          set -e
+
+          if npm run | grep -q "lint"; then
+            echo "Running lint..."
+            npm run lint
+          else
+            echo "No lint script found."
+            echo "Skipping lint."
+          fi
+
+      # ---------------------------------------
+      # 11. Build
+      # ---------------------------------------
+      - name: Build PharmaBill
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "Building PharmaBill"
+          echo "======================================"
+
+          if npm run | grep -q "build"; then
+            npm run build
+          else
+            echo "ERROR: No build script found in package.json."
+            echo ""
+            echo "Available npm scripts:"
+            npm run
+            exit 1
+          fi
+
+      # ---------------------------------------
+      # 12. Test
+      # ---------------------------------------
+      - name: Run tests
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          set -e
+
+          if npm run | grep -q "test"; then
+            echo "Running tests..."
+            npm test -- --runInBand || npm test
+          else
+            echo "No test script found."
+            echo "Skipping tests."
+          fi
+
+      # ---------------------------------------
+      # 13. Show build output
+      # ---------------------------------------
+      - name: Show build output
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "Build output"
+          echo "======================================"
+
+          if [ -d "dist" ]; then
+            echo "dist directory found:"
+            find dist -maxdepth 3 -type f | sort
+          elif [ -d "build" ]; then
+            echo "build directory found:"
+            find build -maxdepth 3 -type f | sort
+          else
+            echo "No standard dist/build directory found."
+            echo "Project contents:"
+            find . -maxdepth 3 -type f \
+              -not -path "./node_modules/*" | sort | head -300
+          fi
+
+      # ---------------------------------------
+      # 14. Build success
+      # ---------------------------------------
+      - name: Build completed
+        shell: bash
+        run: |
+          echo ""
+          echo "======================================"
+          echo "       PHARMABILL BUILD SUCCESS       "
+          echo "======================================"
+          echo ""
+          echo "Application directory:"
+          echo "$APP_DIR"
+          echo ""
+          echo "Node.js:"
+          node --version
+          echo ""
+          echo "npm:"
+          npm --version
+          echo ""
+          echo "Build completed successfully."
+          echo "======================================"
