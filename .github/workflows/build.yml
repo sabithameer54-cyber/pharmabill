@@ -1,444 +1,441 @@
-name: Build PharmaBill Android APK
+name: Build PharmaBill APK
 
 on:
   push:
     branches:
       - main
       - master
+
   pull_request:
     branches:
       - main
       - master
+
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
-    name: Build PharmaBill APK
+    name: Build PharmaBill Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 30
 
     steps:
-      # ---------------------------------------------------------
-      # 1. Checkout
-      # ---------------------------------------------------------
+
+      # =========================================================
+      # 1. CHECKOUT
+      # =========================================================
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      # ---------------------------------------------------------
-      # 2. Show repository
-      # ---------------------------------------------------------
+      # =========================================================
+      # 2. SHOW REPOSITORY
+      # =========================================================
       - name: Show repository files
         shell: bash
         run: |
-          set -e
           echo "===== Repository ====="
           pwd
+          ls -la
+          echo
+          echo "===== Files ====="
           find . -maxdepth 3 -type f \
             ! -path './.git/*' \
             | sort | head -300
 
-      # ---------------------------------------------------------
-      # 3. Setup Node
-      # ---------------------------------------------------------
-      - name: Setup Node.js 20
-        uses: actions/setup-node@v7
-        with:
-          node-version: '20'
-          package-manager-cache: false
-
-      - name: Check Node and npm
+      # =========================================================
+      # 3. EXTRACT PHARMABILL ZIP
+      # =========================================================
+      - name: Extract PharmaBill ZIP
+        shell: bash
         run: |
-          node --version
-          npm --version
+          set -e
 
-      # ---------------------------------------------------------
-      # 4. Find PharmaBill application directory
-      # ---------------------------------------------------------
+          ZIP_FILE=""
+
+          if [ -f "PharmaBill.zip" ]; then
+            ZIP_FILE="PharmaBill.zip"
+          elif [ -f "pharmabill.zip" ]; then
+            ZIP_FILE="pharmabill.zip"
+          else
+            ZIP_FILE=$(find . -maxdepth 2 -type f \
+              \( -iname "*.zip" \) \
+              ! -path "./.git/*" \
+              | head -n 1 || true)
+          fi
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No PharmaBill ZIP file found."
+            echo
+            echo "Available ZIP files:"
+            find . -type f -iname "*.zip" \
+              ! -path "./.git/*" || true
+            exit 1
+          fi
+
+          echo "Found ZIP: $ZIP_FILE"
+
+          mkdir -p _pharmabill_source
+
+          unzip -q -o "$ZIP_FILE" -d _pharmabill_source
+
+          echo
+          echo "===== Extracted files ====="
+          find _pharmabill_source -maxdepth 4 -type f \
+            ! -path '*/node_modules/*' \
+            | head -300
+
+      # =========================================================
+      # 4. FIND ACTUAL APPLICATION DIRECTORY
+      # =========================================================
       - name: Find application directory
         id: app
         shell: bash
         run: |
           set -e
 
-          APP_DIR=""
+          echo "Searching for package.json..."
 
-          # Root project
-          if [ -f "package.json" ]; then
-            APP_DIR="."
-          else
-            # Search for package.json, ignoring node_modules/.git
-            FOUND=$(find . -type f -name package.json \
-              -not -path '*/node_modules/*' \
-              -not -path '*/.git/*' \
-              | head -1 || true)
+          PACKAGE_JSON=$(find _pharmabill_source \
+            -type f \
+            -name "package.json" \
+            ! -path "*/node_modules/*" \
+            ! -path "*/.git/*" \
+            | head -n 1 || true)
 
-            if [ -n "$FOUND" ]; then
-              APP_DIR="$(dirname "$FOUND")"
-            fi
-          fi
-
-          if [ -z "$APP_DIR" ]; then
+          if [ -z "$PACKAGE_JSON" ]; then
             echo "ERROR: package.json was not found."
-            echo "Repository contents:"
-            find . -maxdepth 4 -type f | sort
+            echo
+            echo "Extracted directory:"
+            find _pharmabill_source -maxdepth 5 -type f \
+              ! -path "*/node_modules/*" \
+              | sort | head -500
             exit 1
           fi
 
-          APP_DIR="${APP_DIR#./}"
-
-          if [ -z "$APP_DIR" ]; then
-            APP_DIR="."
-          fi
-
-          echo "Application directory: $APP_DIR"
-          echo "app_dir=$APP_DIR" >> "$GITHUB_OUTPUT"
-
-      # ---------------------------------------------------------
-      # 5. Verify package.json
-      # ---------------------------------------------------------
-      - name: Verify Node project
-        working-directory: ${{ steps.app.outputs.app_dir }}
-        shell: bash
-        run: |
-          set -e
+          APP_DIR=$(dirname "$PACKAGE_JSON")
 
           echo "Application directory:"
-          pwd
+          echo "$APP_DIR"
+
+          echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
+          echo "app_dir=$APP_DIR" >> "$GITHUB_OUTPUT"
 
           echo
-          echo "package.json:"
-          test -f package.json
-          cat package.json
+          echo "===== package.json ====="
+          cat "$PACKAGE_JSON"
 
-      # ---------------------------------------------------------
-      # 6. Install npm dependencies
-      #
-      # --legacy-peer-deps handles the Vite/Tailwind peer
-      # dependency conflict shown in your previous screenshot.
-      #
-      # We intentionally do NOT use setup-node npm cache here
-      # because your project previously had no lock file at the
-      # expected location.
-      # ---------------------------------------------------------
+      # =========================================================
+      # 5. SET NODE.JS
+      # =========================================================
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          package-manager-cache: false
+
+      # =========================================================
+      # 6. VERIFY NODE
+      # =========================================================
+      - name: Verify Node.js
+        shell: bash
+        run: |
+          node --version
+          npm --version
+
+      # =========================================================
+      # 7. INSTALL NPM DEPENDENCIES
+      # =========================================================
       - name: Install dependencies
-        working-directory: ${{ steps.app.outputs.app_dir }}
+        working-directory: ${{ env.APP_DIR }}
         shell: bash
         run: |
           set -e
 
-          npm install --legacy-peer-deps --no-audit --no-fund
+          npm install \
+            --legacy-peer-deps \
+            --no-audit \
+            --no-fund
 
-      # ---------------------------------------------------------
-      # 7. Check Capacitor
-      # ---------------------------------------------------------
+      # =========================================================
+      # 8. SHOW CAPACITOR VERSION
+      # =========================================================
       - name: Check Capacitor
-        working-directory: ${{ steps.app.outputs.app_dir }}
+        working-directory: ${{ env.APP_DIR }}
         shell: bash
         run: |
-          set -e
+          echo "===== Capacitor ====="
+          npx cap --version || true
 
+          echo
           echo "===== Capacitor packages ====="
-          npm list @capacitor/core @capacitor/cli @capacitor/android \
+          npm list @capacitor/core \
+            @capacitor/cli \
+            @capacitor/android \
             --depth=0 || true
 
-          echo
-          echo "===== Capacitor files ====="
-          find . -maxdepth 2 \
-            \( -name 'capacitor.config.ts' \
-            -o -name 'capacitor.config.json' \
-            -o -name 'capacitor.config.js' \
-            \) -print
-
-      # ---------------------------------------------------------
-      # 8. Build web application if a build script exists
-      # ---------------------------------------------------------
+      # =========================================================
+      # 9. BUILD WEB APP
+      # =========================================================
       - name: Build web application
-        working-directory: ${{ steps.app.outputs.app_dir }}
+        working-directory: ${{ env.APP_DIR }}
         shell: bash
         run: |
           set -e
 
-          if node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.build ? 0 : 1)"; then
+          if npm run | grep -q " build"; then
             echo "Running npm build..."
             npm run build
           else
-            echo "No build script found. Continuing..."
+            echo "No npm build script found."
+            echo "Continuing..."
           fi
 
-      # ---------------------------------------------------------
-      # 9. Setup Java 17
-      # ---------------------------------------------------------
+      # =========================================================
+      # 10. SETUP JAVA 17
+      # =========================================================
       - name: Setup Java 17
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
-      - name: Check Java
+      # =========================================================
+      # 11. VERIFY JAVA
+      # =========================================================
+      - name: Verify Java
+        shell: bash
         run: |
           java -version
           echo "JAVA_HOME=$JAVA_HOME"
 
-      # ---------------------------------------------------------
-      # 10. Setup Android SDK
-      #
-      # This replaces the broken SDK setup from your screenshot.
-      # setup-android installs cmdline-tools and exposes sdkmanager.
-      # ---------------------------------------------------------
+      # =========================================================
+      # 12. SETUP ANDROID SDK
+      # =========================================================
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
         with:
-          packages: >-
+          packages: |
             platform-tools
             platforms;android-35
             build-tools;35.0.0
 
-      # ---------------------------------------------------------
-      # 11. Explicitly repair SDK PATH
-      # ---------------------------------------------------------
-      - name: Verify and repair Android SDK
-        shell: bash
-        run: |
-          set -e
-
-          echo "ANDROID_HOME=${ANDROID_HOME:-}"
-          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-}"
-
-          if [ -z "${ANDROID_SDK_ROOT:-}" ]; then
-            if [ -n "${ANDROID_HOME:-}" ]; then
-              export ANDROID_SDK_ROOT="$ANDROID_HOME"
-            else
-              export ANDROID_SDK_ROOT="$HOME/.android/sdk"
-            fi
-          fi
-
-          echo "Using SDK: $ANDROID_SDK_ROOT"
-
-          CMDLINE_TOOLS=""
-
-          if [ -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
-            CMDLINE_TOOLS="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
-          else
-            CMDLINE_TOOLS=$(find "$ANDROID_SDK_ROOT/cmdline-tools" \
-              -type f \
-              -name sdkmanager \
-              -perm -111 \
-              -print -quit 2>/dev/null \
-              | xargs -r dirname || true)
-          fi
-
-          if [ -z "$CMDLINE_TOOLS" ]; then
-            echo "ERROR: sdkmanager was not found."
-            echo "SDK directory:"
-            find "$ANDROID_SDK_ROOT" -maxdepth 5 -type f \
-              -name sdkmanager -print 2>/dev/null || true
-            exit 1
-          fi
-
-          echo "sdkmanager directory: $CMDLINE_TOOLS"
-
-          echo "$CMDLINE_TOOLS" >> "$GITHUB_PATH"
-          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
-
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-
-          "$CMDLINE_TOOLS/sdkmanager" --version
-
-      # ---------------------------------------------------------
-      # 12. Accept Android licenses
-      # ---------------------------------------------------------
-      - name: Accept Android licenses
-        shell: bash
-        run: |
-          set -e
-
-          yes | sdkmanager --licenses >/dev/null || true
-
-      # ---------------------------------------------------------
-      # 13. Install required Android packages
-      # ---------------------------------------------------------
-      - name: Install Android SDK packages
-        shell: bash
-        run: |
-          set -e
-
-          sdkmanager \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
-
-      # ---------------------------------------------------------
-      # 14. Verify Android SDK
-      # ---------------------------------------------------------
+      # =========================================================
+      # 13. VERIFY ANDROID SDK
+      # =========================================================
       - name: Verify Android SDK
         shell: bash
         run: |
           set -e
 
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+
+          echo
           echo "sdkmanager:"
-          which sdkmanager
+          command -v sdkmanager
+
+          echo
           sdkmanager --version
 
           echo
           echo "adb:"
-          which adb || true
+          command -v adb
+          adb version
 
           echo
-          echo "Installed Android packages:"
+          echo "Installed SDK packages:"
           sdkmanager --list_installed | head -100
 
-      # ---------------------------------------------------------
-      # 15. Check Android project
-      # ---------------------------------------------------------
-      - name: Check Android project
-        working-directory: ${{ steps.app.outputs.app_dir }}
+      # =========================================================
+      # 14. ACCEPT ANDROID LICENSES
+      # =========================================================
+      - name: Accept Android licenses
         shell: bash
         run: |
-          set -e
+          yes | sdkmanager --licenses >/dev/null || true
 
-          if [ ! -d "android" ]; then
-            echo "Android directory does not exist."
+      # =========================================================
+      # 15. INSTALL REQUIRED ANDROID PACKAGES
+      # =========================================================
+      - name: Install Android build packages
+        shell: bash
+        run: |
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
-            echo "Checking Capacitor..."
-            npx cap --version
+      # =========================================================
+      # 16. CHECK ANDROID PROJECT
+      # =========================================================
+      - name: Check Android project
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          echo "Checking Android project..."
 
-            echo "Creating Android platform..."
+          if [ -d "android" ]; then
+            echo "Android project already exists."
+          else
+            echo "Android project does not exist."
+            echo "Generating Android project..."
+
             npx cap add android
           fi
 
-          test -d android
-
-          echo "Android project found:"
-          find android -maxdepth 2 -type f \
-            \( -name 'build.gradle' \
-            -o -name 'build.gradle.kts' \
-            -o -name 'gradle-wrapper.properties' \
-            -o -name 'settings.gradle' \
-            -o -name 'settings.gradle.kts' \
-            \) -print
-
-      # ---------------------------------------------------------
-      # 16. Sync Capacitor
-      # ---------------------------------------------------------
-      - name: Sync Android
-        working-directory: ${{ steps.app.outputs.app_dir }}
+      # =========================================================
+      # 17. CAPACITOR SYNC
+      # =========================================================
+      - name: Capacitor sync
+        working-directory: ${{ env.APP_DIR }}
         shell: bash
         run: |
           set -e
 
           npx cap sync android
 
-      # ---------------------------------------------------------
-      # 17. Verify Gradle wrapper
-      # ---------------------------------------------------------
-      - name: Verify Gradle
-        working-directory: ${{ steps.app.outputs.app_dir }}/android
+      # =========================================================
+      # 18. MAKE GRADLE EXECUTABLE
+      # =========================================================
+      - name: Prepare Gradle
+        working-directory: ${{ env.APP_DIR }}/android
         shell: bash
         run: |
-          set -e
-
-          test -f gradlew
-
           chmod +x gradlew
 
+          echo "Gradle wrapper:"
           ./gradlew --version
 
-      # ---------------------------------------------------------
-      # 18. Build Debug APK
-      # ---------------------------------------------------------
+      # =========================================================
+      # 19. CLEAN AND BUILD APK
+      # =========================================================
       - name: Build Debug APK
-        working-directory: ${{ steps.app.outputs.app_dir }}/android
+        working-directory: ${{ env.APP_DIR }}/android
         shell: bash
         run: |
           set -e
-
-          chmod +x gradlew
 
           ./gradlew \
             --no-daemon \
             --stacktrace \
             --warning-mode all \
+            clean \
             assembleDebug
 
-      # ---------------------------------------------------------
-      # 19. Find APK
-      # ---------------------------------------------------------
+      # =========================================================
+      # 20. FIND APK
+      # =========================================================
       - name: Find generated APK
         id: apk
-        working-directory: ${{ steps.app.outputs.app_dir }}
+        working-directory: ${{ env.APP_DIR }}
         shell: bash
         run: |
           set -e
 
           echo "Searching for APK..."
 
-          find android -type f -name "*.apk" -print
-
-          APK=$(find android -type f \
-            -path "*/build/outputs/apk/debug/*.apk" \
-            | head -1 || true)
+          APK=$(find android \
+            -type f \
+            -name "*.apk" \
+            | grep -E "debug|release" \
+            | head -n 1 || true)
 
           if [ -z "$APK" ]; then
-            APK=$(find android -type f -name "*.apk" \
-              | head -1 || true)
+            APK=$(find android \
+              -type f \
+              -name "*.apk" \
+              | head -n 1 || true)
           fi
 
           if [ -z "$APK" ]; then
             echo "ERROR: APK was not generated."
+
+            echo
+            echo "Android build files:"
+            find android \
+              -type f \
+              | grep -E "\.apk$|build.gradle|settings.gradle" \
+              | head -200 || true
+
             exit 1
           fi
 
-          echo "APK found: $APK"
+          echo "APK found:"
+          echo "$APK"
 
-          echo "apk_path=$APK" >> "$GITHUB_OUTPUT"
+          mkdir -p ../release
 
-      # ---------------------------------------------------------
-      # 20. Copy APK to predictable filename
-      # ---------------------------------------------------------
-      - name: Prepare APK artifact
-        working-directory: ${{ steps.app.outputs.app_dir }}
+          cp "$APK" "../release/PharmaBill-debug.apk"
+
+          ABS_APK="$(cd .. && pwd)/release/PharmaBill-debug.apk"
+
+          echo "APK_PATH=$ABS_APK" >> "$GITHUB_ENV"
+          echo "apk_path=$ABS_APK" >> "$GITHUB_OUTPUT"
+
+      # =========================================================
+      # 21. VERIFY APK
+      # =========================================================
+      - name: Verify APK
         shell: bash
         run: |
           set -e
 
-          mkdir -p release
+          test -f "$APK_PATH"
 
-          cp "${{ steps.apk.outputs.apk_path }}" \
-            release/PharmaBill-debug.apk
+          echo "APK:"
+          ls -lh "$APK_PATH"
 
-          ls -lh release/PharmaBill-debug.apk
+          echo
+          echo "APK file command:"
+          file "$APK_PATH"
 
-      # ---------------------------------------------------------
-      # 21. Upload APK
-      #
-      # IMPORTANT:
-      # This uploads the actual .apk file.
-      # It will NOT be uploaded as a ZIP containing the project.
-      # ---------------------------------------------------------
-      - name: Upload PharmaBill APK
+      # =========================================================
+      # 22. UPLOAD APK AS ACTIONS ARTIFACT
+      # =========================================================
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v5
         with:
           name: PharmaBill-APK
-          path: ${{ steps.app.outputs.app_dir }}/release/PharmaBill-debug.apk
+          path: ${{ env.APK_PATH }}
           if-no-files-found: error
-          retention-days: 30
 
-      # ---------------------------------------------------------
-      # 22. Build summary
-      # ---------------------------------------------------------
+      # =========================================================
+      # 23. CREATE GITHUB RELEASE WITH REAL APK
+      # =========================================================
+      - name: Create GitHub Release APK
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: pharmabill-apk-${{ github.run_number }}
+          name: PharmaBill APK Build ${{ github.run_number }}
+          body: |
+            PharmaBill Android APK
+
+            Build number: ${{ github.run_number }}
+            Commit: ${{ github.sha }}
+
+            Download the APK directly from the Assets section below.
+          files: ${{ env.APK_PATH }}
+          generate_release_notes: false
+
+      # =========================================================
+      # 24. BUILD SUMMARY
+      # =========================================================
       - name: Build summary
-        if: success()
-        working-directory: ${{ steps.app.outputs.app_dir }}
+        if: always()
         shell: bash
         run: |
-          echo "## PharmaBill Android APK" >> "$GITHUB_STEP_SUMMARY"
+          echo "## PharmaBill APK Build" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Build successful." >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**APK:** PharmaBill-debug.apk" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Download it from the **Artifacts** section of this workflow run." >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -f "$APK_PATH" ]; then
+            echo "### APK successfully created" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**File:** PharmaBill-debug.apk" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Size:** $(du -h "$APK_PATH" | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### APK was not created" >> "$GITHUB_STEP_SUMMARY"
+          fi
