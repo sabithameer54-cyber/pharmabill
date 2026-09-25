@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v7
 
       # ============================================================
-      # 2. SHOW ORIGINAL REPOSITORY
+      # 2. SHOW REPOSITORY
       # ============================================================
       - name: Show repository
         shell: bash
@@ -45,12 +45,12 @@ jobs:
           echo ""
           echo "Repository files:"
 
-          find . -maxdepth 4 -type f \
+          find . -maxdepth 5 -type f \
             ! -path "./.git/*" \
             | sort
 
       # ============================================================
-      # 3. FIND AND EXTRACT PHARMABILL.ZIP
+      # 3. EXTRACT PHARMABILL.ZIP
       # ============================================================
       - name: Extract PharmaBill project
         id: extract
@@ -59,20 +59,18 @@ jobs:
           set -e
 
           echo "=========================================="
-          echo "EXTRACTING PHARMABILL PROJECT"
+          echo "EXTRACTING PHARMABILL.ZIP"
           echo "=========================================="
 
           ZIP_FILE=""
 
-          # Look for PharmaBill.zip first
           if [ -f "$GITHUB_WORKSPACE/PharmaBill.zip" ]; then
             ZIP_FILE="$GITHUB_WORKSPACE/PharmaBill.zip"
           fi
 
-          # Case-insensitive fallback
           if [ -z "$ZIP_FILE" ]; then
             ZIP_FILE=$(find "$GITHUB_WORKSPACE" \
-              -maxdepth 2 \
+              -maxdepth 3 \
               -type f \
               -iname "PharmaBill.zip" \
               | head -1 || true)
@@ -82,9 +80,9 @@ jobs:
             echo "ERROR: PharmaBill.zip was not found."
 
             echo ""
-            echo "Files in repository:"
+            echo "Repository files:"
             find "$GITHUB_WORKSPACE" \
-              -maxdepth 5 \
+              -maxdepth 8 \
               -type f \
               ! -path "*/.git/*" \
               | sort
@@ -102,10 +100,10 @@ jobs:
 
           echo ""
           echo "ZIP contents:"
-          unzip -l "$ZIP_FILE" | head -200
+          unzip -l "$ZIP_FILE" | head -300
 
           echo ""
-          echo "Extracting..."
+          echo "Extracting ZIP..."
 
           unzip -q "$ZIP_FILE" -d "$PROJECT_ROOT"
 
@@ -115,17 +113,17 @@ jobs:
           echo ""
           echo "Extracted files:"
           find "$PROJECT_ROOT" \
-            -maxdepth 5 \
+            -maxdepth 6 \
             -type f \
             | sort \
-            | head -300
+            | head -500
 
           echo "project_root=$PROJECT_ROOT" >> "$GITHUB_OUTPUT"
 
       # ============================================================
-      # 4. FIND package.json INSIDE EXTRACTED ZIP
+      # 4. FIND package.json
       # ============================================================
-      - name: Find PharmaBill package.json
+      - name: Find PharmaBill project
         id: project
         shell: bash
         run: |
@@ -134,7 +132,7 @@ jobs:
           PROJECT_ROOT="${{ steps.extract.outputs.project_root }}"
 
           echo "=========================================="
-          echo "SEARCHING EXTRACTED PROJECT"
+          echo "SEARCHING FOR package.json"
           echo "=========================================="
 
           PACKAGE_JSON=$(find "$PROJECT_ROOT" \
@@ -148,9 +146,9 @@ jobs:
             echo "ERROR: package.json was not found inside PharmaBill.zip."
 
             echo ""
-            echo "Extracted repository:"
+            echo "Extracted files:"
             find "$PROJECT_ROOT" \
-              -maxdepth 8 \
+              -maxdepth 10 \
               -type f \
               | sort
 
@@ -160,17 +158,17 @@ jobs:
           PROJECT_DIR=$(dirname "$PACKAGE_JSON")
 
           echo ""
-          echo "package.json FOUND:"
+          echo "package.json found:"
           echo "$PACKAGE_JSON"
 
           echo ""
-          echo "PROJECT DIRECTORY:"
+          echo "Project directory:"
           echo "$PROJECT_DIR"
 
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
       # ============================================================
-      # 5. NODE.JS
+      # 5. SETUP NODE
       # ============================================================
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -191,12 +189,8 @@ jobs:
           echo "PHARMABILL PROJECT"
           echo "=========================================="
 
-          echo "Directory:"
+          echo "Project directory:"
           pwd
-
-          echo ""
-          echo "package.json:"
-          cat package.json
 
           echo ""
           echo "Node:"
@@ -207,7 +201,12 @@ jobs:
           npm --version
 
           echo ""
-          echo "Project files:"
+          echo "package.json:"
+          cat package.json
+
+          echo ""
+          echo "Important files:"
+
           find . -maxdepth 3 -type f \
             ! -path "./node_modules/*" \
             | sort \
@@ -234,7 +233,7 @@ jobs:
               --no-audit \
               --no-fund
           else
-            echo "No package-lock.json found."
+            echo "package-lock.json not found."
 
             npm install \
               --legacy-peer-deps \
@@ -264,7 +263,7 @@ jobs:
           NODE
           )
 
-          echo "Detected Capacitor:"
+          echo "Detected Capacitor version:"
           echo "${CAP_VERSION:-NOT INSTALLED}"
 
           CAP_MAJOR=$(echo "$CAP_VERSION" | grep -oE '[0-9]+' | head -1 || true)
@@ -273,7 +272,7 @@ jobs:
             CAP_MAJOR="7"
           fi
 
-          echo "Using Capacitor major: $CAP_MAJOR"
+          echo "Capacitor major version: $CAP_MAJOR"
 
           echo "cap_major=$CAP_MAJOR" >> "$GITHUB_OUTPUT"
 
@@ -289,7 +288,7 @@ jobs:
           CAP_MAJOR="${{ steps.capacitor.outputs.cap_major }}"
 
           echo "=========================================="
-          echo "CAPACITOR SETUP"
+          echo "INSTALLING CAPACITOR"
           echo "=========================================="
 
           npm install \
@@ -339,6 +338,7 @@ jobs:
           EOF
 
           echo ""
+          echo "capacitor.config.json:"
           cat capacitor.config.json
 
       # ============================================================
@@ -357,7 +357,7 @@ jobs:
           if npm run | grep -qE '^[[:space:]]+build'; then
             npm run build
           else
-            echo "ERROR: No build script exists."
+            echo "ERROR: No build script found."
 
             echo ""
             echo "Available scripts:"
@@ -367,14 +367,14 @@ jobs:
           fi
 
           echo ""
-          echo "Checking dist..."
+          echo "Checking dist directory..."
 
           if [ ! -d "dist" ]; then
             echo "ERROR: dist directory was not created."
 
             echo ""
-            echo "Directories:"
-            find . -maxdepth 4 -type d \
+            echo "Project directories:"
+            find . -maxdepth 5 -type d \
               ! -path "./node_modules/*" \
               | sort
 
@@ -382,11 +382,11 @@ jobs:
           fi
 
           echo ""
-          echo "dist files:"
+          echo "dist contents:"
           find dist -type f | sort | head -300
 
       # ============================================================
-      # 12. JAVA
+      # 12. JAVA 17
       # ============================================================
       - name: Setup Java 17
         uses: actions/setup-java@v6
@@ -446,7 +446,7 @@ jobs:
           fi
 
           if [ -z "$SDKMANAGER" ]; then
-            echo "ERROR: sdkmanager not found."
+            echo "ERROR: sdkmanager was not found."
             exit 1
           fi
 
@@ -458,17 +458,20 @@ jobs:
           echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
 
           echo ""
-          echo "Accepting licenses..."
+          echo "Accepting Android licenses..."
 
           yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
 
           echo ""
-          echo "Installing Android SDK packages..."
+          echo "Installing Android packages..."
 
           "$SDKMANAGER" \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
+
+          echo ""
+          echo "Android SDK packages installed."
 
       # ============================================================
       # 14. CREATE ANDROID PROJECT
@@ -486,7 +489,6 @@ jobs:
           if [ -d "android" ]; then
             echo "Android project already exists."
           else
-            echo "Android project does not exist."
             echo "Creating Android project..."
 
             npx cap add android
@@ -497,8 +499,11 @@ jobs:
             exit 1
           fi
 
+          echo ""
+          echo "Android project exists."
+
       # ============================================================
-      # 15. SYNC CAPACITOR
+      # 15. CAPACITOR SYNC
       # ============================================================
       - name: Sync Capacitor
         working-directory: ${{ steps.project.outputs.project_dir }}
@@ -513,7 +518,7 @@ jobs:
           npx cap sync android
 
       # ============================================================
-      # 16. CHECK GRADLE
+      # 16. CHECK ANDROID PROJECT
       # ============================================================
       - name: Check Android Gradle project
         working-directory: ${{ steps.project.outputs.project_dir }}/android
@@ -522,7 +527,7 @@ jobs:
           set -e
 
           echo "=========================================="
-          echo "ANDROID GRADLE"
+          echo "ANDROID GRADLE PROJECT"
           echo "=========================================="
 
           chmod +x gradlew
@@ -535,17 +540,27 @@ jobs:
           echo "Gradle:"
           ./gradlew --version
 
+          echo ""
+          echo "Android project files:"
+          find . -maxdepth 4 -type f \
+            ! -path "*/build/*" \
+            | sort \
+            | head -400
+
       # ============================================================
-      # 17. BUILD APK
+      # 17. BUILD DEBUG APK
+      #
+      # IMPORTANT:
+      # The build log is saved even when Gradle fails.
       # ============================================================
       - name: Build debug APK
         working-directory: ${{ steps.project.outputs.project_dir }}/android
         shell: bash
         run: |
-          set -e
+          set +e
 
           echo "=========================================="
-          echo "BUILDING APK"
+          echo "BUILDING PHARMABILL APK"
           echo "=========================================="
 
           chmod +x gradlew
@@ -553,20 +568,86 @@ jobs:
           ./gradlew assembleDebug \
             --no-daemon \
             --stacktrace \
-            --warning-mode all
+            --info \
+            --warning-mode all \
+            2>&1 | tee "$GITHUB_WORKSPACE/gradle-build.log"
+
+          BUILD_EXIT=${PIPESTATUS[0]}
+
+          echo ""
+          echo "=========================================="
+          echo "GRADLE ERROR SUMMARY"
+          echo "=========================================="
+
+          echo ""
+          echo "---------- WHAT WENT WRONG ----------"
+
+          grep -A 40 -B 10 \
+            "What went wrong:" \
+            "$GITHUB_WORKSPACE/gradle-build.log" \
+            || true
+
+          echo ""
+          echo "---------- FAILED TASKS ----------"
+
+          grep -E \
+            "FAILURE:|Execution failed|FAILED|Could not|error:" \
+            "$GITHUB_WORKSPACE/gradle-build.log" \
+            | tail -150 \
+            || true
+
+          echo ""
+          echo "---------- CAUSED BY ----------"
+
+          grep -E \
+            "Caused by:" \
+            "$GITHUB_WORKSPACE/gradle-build.log" \
+            | tail -100 \
+            || true
+
+          echo ""
+          echo "---------- LAST 150 LINES ----------"
+
+          tail -150 "$GITHUB_WORKSPACE/gradle-build.log"
+
+          echo ""
+          echo "=========================================="
+
+          if [ "$BUILD_EXIT" -ne 0 ]; then
+            echo "APK BUILD FAILED"
+            echo "Gradle exit code: $BUILD_EXIT"
+            exit "$BUILD_EXIT"
+          fi
+
+          echo "APK BUILD SUCCESSFUL"
 
       # ============================================================
-      # 18. FIND APK
+      # 18. ALWAYS UPLOAD GRADLE LOG
+      #
+      # This runs even if Build debug APK fails.
+      # ============================================================
+      - name: Upload Gradle build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PharmaBill-Gradle-Log-${{ github.run_number }}
+          path: ${{ github.workspace }}/gradle-build.log
+          if-no-files-found: warn
+          retention-days: 30
+
+      # ============================================================
+      # 19. FIND GENERATED APK
       # ============================================================
       - name: Find generated APK
         id: apk
+        if: success()
         working-directory: ${{ steps.project.outputs.project_dir }}
         shell: bash
         run: |
           set -e
 
           echo "=========================================="
-          echo "FINDING APK"
+          echo "FINDING GENERATED APK"
           echo "=========================================="
 
           APK=$(find android \
@@ -587,17 +668,18 @@ jobs:
               2>/dev/null || true
 
             echo ""
-            echo "Build output:"
+            echo "Build outputs:"
             find android \
               -type f \
               -path "*/build/outputs/*" \
               2>/dev/null \
               | sort \
-              | head -300
+              | head -500
 
             exit 1
           fi
 
+          echo ""
           echo "APK found:"
           echo "$APK"
 
@@ -610,9 +692,10 @@ jobs:
           ls -lh release/PharmaBill-debug.apk
 
       # ============================================================
-      # 19. UPLOAD APK ARTIFACT
+      # 20. UPLOAD APK ARTIFACT
       # ============================================================
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: PharmaBill-APK-${{ github.run_number }}
@@ -621,7 +704,7 @@ jobs:
           retention-days: 30
 
       # ============================================================
-      # 20. CREATE GITHUB RELEASE
+      # 21. CREATE GITHUB RELEASE
       # ============================================================
       - name: Create GitHub Release
         if: success() && github.ref == 'refs/heads/main'
@@ -630,9 +713,10 @@ jobs:
           tag_name: pharmabill-${{ github.run_number }}
           name: PharmaBill APK ${{ github.run_number }}
           body: |
-            PharmaBill Android APK
+            # PharmaBill Android APK
 
-            Build number: ${{ github.run_number }}
+            Build number:
+            ${{ github.run_number }}
 
             Commit:
             ${{ github.sha }}
@@ -643,9 +727,10 @@ jobs:
           generate_release_notes: false
 
       # ============================================================
-      # 21. SUCCESS
+      # 22. FINAL SUCCESS
       # ============================================================
       - name: Build successful
+        if: success()
         shell: bash
         run: |
           echo ""
@@ -653,6 +738,10 @@ jobs:
           echo " PHARMABILL APK BUILD SUCCESSFUL"
           echo "=========================================="
           echo ""
-          echo "PharmaBill-debug.apk has been created."
+          echo "APK: PharmaBill-debug.apk"
+          echo ""
+          echo "The APK is available in:"
+          echo "1. GitHub Actions Artifacts"
+          echo "2. GitHub Releases"
           echo ""
           echo "=========================================="
