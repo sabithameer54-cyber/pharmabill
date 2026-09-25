@@ -1,4 +1,4 @@
-name: Build PharmaBill APK
+name: Build PharmaBill Android APK
 
 on:
   push:
@@ -15,19 +15,119 @@ on:
 
 jobs:
   build-apk:
-    name: Build PharmaBill Android APK
+    name: Build PharmaBill APK
     runs-on: ubuntu-latest
 
     steps:
 
       # =========================================================
-      # 1. Checkout
+      # 1. CHECKOUT
       # =========================================================
       - name: Checkout
         uses: actions/checkout@v4
 
       # =========================================================
-      # 2. Setup Node.js
+      # 2. EXTRACT ZIP IF PRESENT
+      # =========================================================
+      - name: Extract PharmaBill ZIP
+        shell: bash
+        run: |
+          set -e
+
+          echo "Repository contents:"
+          ls -la
+
+          mkdir -p extracted
+
+          ZIP_FILE=$(find . \
+            -maxdepth 3 \
+            -type f \
+            \( -iname "*.zip" \) \
+            -not -path "./.git/*" \
+            | head -n 1 || true)
+
+          if [ -n "$ZIP_FILE" ]; then
+            echo "ZIP found:"
+            echo "$ZIP_FILE"
+
+            unzip -o "$ZIP_FILE" -d extracted
+
+            echo ""
+            echo "ZIP extracted successfully."
+
+            find extracted -maxdepth 4 -type f | head -200
+          else
+            echo "No ZIP found."
+            echo "Using repository files."
+          fi
+
+      # =========================================================
+      # 3. FIND PACKAGE.JSON
+      # =========================================================
+      - name: Find application directory
+        shell: bash
+        run: |
+          set -e
+
+          echo "Searching for package.json..."
+
+          PACKAGE_JSON=$(find . \
+            -type f \
+            -name "package.json" \
+            -not -path "./node_modules/*" \
+            -not -path "./.git/*" \
+            | head -n 1 || true)
+
+          if [ -z "$PACKAGE_JSON" ]; then
+            echo ""
+            echo "ERROR: package.json was not found."
+            echo ""
+            echo "Repository files:"
+            find . -maxdepth 5 -type f | sort | head -300
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$PACKAGE_JSON")
+
+          if [ "$PROJECT_DIR" = "." ]; then
+            PROJECT_DIR="."
+          fi
+
+          echo ""
+          echo "=========================================="
+          echo "package.json found:"
+          echo "$PACKAGE_JSON"
+          echo ""
+          echo "Project directory:"
+          echo "$PROJECT_DIR"
+          echo "=========================================="
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      # =========================================================
+      # 4. VERIFY NODE PROJECT
+      # =========================================================
+      - name: Verify Node project
+        shell: bash
+        run: |
+          set -e
+
+          echo "Checking project..."
+
+          if [ ! -f "$PROJECT_DIR/package.json" ]; then
+            echo "ERROR: package.json not found at:"
+            echo "$PROJECT_DIR/package.json"
+            exit 1
+          fi
+
+          echo "package.json FOUND."
+
+          echo ""
+          echo "Project contents:"
+          ls -la "$PROJECT_DIR"
+
+      # =========================================================
+      # 5. SETUP NODE
       # =========================================================
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -36,27 +136,36 @@ jobs:
           package-manager-cache: false
 
       # =========================================================
-      # 3. Verify project
+      # 6. CHECK NODE
       # =========================================================
-      - name: Verify project
+      - name: Check Node.js
         run: |
-          test -f package.json
-          echo "package.json found"
           node --version
           npm --version
 
       # =========================================================
-      # 4. Install existing dependencies
+      # 7. INSTALL DEPENDENCIES
       # =========================================================
       - name: Install dependencies
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
-          npm install --legacy-peer-deps --no-audit --no-fund
+          set -e
+
+          npm install \
+            --legacy-peer-deps \
+            --no-audit \
+            --no-fund
 
       # =========================================================
-      # 5. Install Capacitor
+      # 8. INSTALL CAPACITOR
       # =========================================================
       - name: Install Capacitor
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
+          set -e
+
           npm install \
             @capacitor/core \
             @capacitor/cli \
@@ -67,17 +176,48 @@ jobs:
             --no-fund
 
       # =========================================================
-      # 6. Build web application
+      # 9. TYPE CHECK
       # =========================================================
-      - name: Build web application
+      - name: Type check
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
-          npm run build
+          set -e
+
+          if npm run | grep -q "lint"; then
+            npm run lint
+          else
+            echo "No lint script found."
+            echo "Skipping type check."
+          fi
 
       # =========================================================
-      # 7. Create Capacitor configuration
+      # 10. BUILD WEB APPLICATION
+      # =========================================================
+      - name: Build web application
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -e
+
+          npm run build
+
+          if [ ! -d "dist" ]; then
+            echo "ERROR: dist directory was not created."
+            exit 1
+          fi
+
+          echo "Web build successful."
+
+      # =========================================================
+      # 11. CREATE CAPACITOR CONFIG
       # =========================================================
       - name: Create Capacitor config
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
+          set -e
+
           cat > capacitor.config.ts <<'EOF'
           import type { CapacitorConfig } from '@capacitor/cli';
 
@@ -93,83 +233,125 @@ jobs:
           echo "Capacitor configuration created."
 
       # =========================================================
-      # 8. Initialize Android project
+      # 12. CREATE ANDROID PLATFORM
       # =========================================================
       - name: Add Android platform
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
-          npx cap add android
+          set -e
+
+          if [ -d "android" ]; then
+            echo "Android platform already exists."
+          else
+            echo "Creating Android platform..."
+            npx cap add android
+          fi
 
       # =========================================================
-      # 9. Copy web build into Android project
+      # 13. SYNC CAPACITOR
       # =========================================================
-      - name: Sync Capacitor
+      - name: Sync Android
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
+          set -e
+
           npx cap sync android
 
       # =========================================================
-      # 10. Setup Java
+      # 14. SETUP JAVA
       # =========================================================
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
-          cache: gradle
 
       # =========================================================
-      # 11. Setup Android SDK
+      # 15. SETUP ANDROID
       # =========================================================
-      - name: Setup Android SDK
+      - name: Setup Android
         uses: android-actions/setup-android@v3
 
       # =========================================================
-      # 12. Build debug APK
+      # 16. BUILD DEBUG APK
       # =========================================================
-      - name: Build APK
-        working-directory: android
+      - name: Build Android APK
+        working-directory: ${{ env.PROJECT_DIR }}/android
+        shell: bash
         run: |
+          set -e
+
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+
+          ./gradlew assembleDebug \
+            --no-daemon \
+            --stacktrace
 
       # =========================================================
-      # 13. Find APK
+      # 17. FIND APK
       # =========================================================
       - name: Find APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
+          set -e
+
           echo "Searching for APK..."
 
-          find android -type f -name "*.apk" -print
+          find android \
+            -type f \
+            -name "*.apk" \
+            -print
 
-          APK=$(find android -type f -name "*.apk" | head -n 1)
+          APK=$(find android \
+            -type f \
+            -name "*.apk" \
+            | head -n 1)
 
           if [ -z "$APK" ]; then
+            echo ""
             echo "ERROR: APK was not created."
             exit 1
           fi
 
+          echo ""
           echo "APK found:"
           echo "$APK"
 
           mkdir -p release
+
           cp "$APK" release/PharmaBill.apk
 
+          echo ""
+          echo "Final APK:"
+          ls -lh release/PharmaBill.apk
+
       # =========================================================
-      # 14. Upload APK
+      # 18. UPLOAD APK
       # =========================================================
       - name: Upload PharmaBill APK
         uses: actions/upload-artifact@v4
         with:
           name: PharmaBill-APK
-          path: release/PharmaBill.apk
+          path: ${{ env.PROJECT_DIR }}/release/PharmaBill.apk
           if-no-files-found: error
           retention-days: 30
 
       # =========================================================
-      # 15. Summary
+      # 19. BUILD SUMMARY
       # =========================================================
       - name: Build summary
         run: |
+          echo ""
           echo "=========================================="
           echo "       PHARMABILL APK BUILD SUCCESS"
           echo "=========================================="
-          ls -lh release/PharmaBill.apk
+          echo ""
+          echo "Artifact:"
+          echo "PharmaBill-APK"
+          echo ""
+          echo "APK:"
+          echo "PharmaBill.apk"
+          echo "=========================================="
