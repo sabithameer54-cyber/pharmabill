@@ -20,56 +20,47 @@ jobs:
 
     steps:
 
-      # =========================================================
+      # ==========================================================
       # 1. CHECKOUT
-      # =========================================================
+      # ==========================================================
       - name: Checkout
         uses: actions/checkout@v4
 
-      # =========================================================
+      # ==========================================================
       # 2. EXTRACT ZIP IF PRESENT
-      # =========================================================
+      # ==========================================================
       - name: Extract PharmaBill ZIP
         shell: bash
         run: |
           set -e
 
-          echo "Repository contents:"
-          ls -la
-
           mkdir -p extracted
 
           ZIP_FILE=$(find . \
-            -maxdepth 3 \
             -type f \
-            \( -iname "*.zip" \) \
+            -name "*.zip" \
             -not -path "./.git/*" \
             | head -n 1 || true)
 
           if [ -n "$ZIP_FILE" ]; then
-            echo "ZIP found:"
-            echo "$ZIP_FILE"
-
+            echo "ZIP found: $ZIP_FILE"
             unzip -o "$ZIP_FILE" -d extracted
-
-            echo ""
-            echo "ZIP extracted successfully."
-
-            find extracted -maxdepth 4 -type f | head -200
           else
-            echo "No ZIP found."
-            echo "Using repository files."
+            echo "No ZIP file found."
           fi
 
-      # =========================================================
-      # 3. FIND PACKAGE.JSON
-      # =========================================================
+          echo "Repository contents:"
+          find . -maxdepth 4 -type f \
+            -not -path "./.git/*" \
+            | sort | head -300
+
+      # ==========================================================
+      # 3. FIND package.json
+      # ==========================================================
       - name: Find application directory
         shell: bash
         run: |
           set -e
-
-          echo "Searching for package.json..."
 
           PACKAGE_JSON=$(find . \
             -type f \
@@ -79,87 +70,74 @@ jobs:
             | head -n 1 || true)
 
           if [ -z "$PACKAGE_JSON" ]; then
-            echo ""
             echo "ERROR: package.json was not found."
-            echo ""
-            echo "Repository files:"
-            find . -maxdepth 5 -type f | sort | head -300
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$PACKAGE_JSON")
 
-          if [ "$PROJECT_DIR" = "." ]; then
-            PROJECT_DIR="."
-          fi
-
-          echo ""
-          echo "=========================================="
-          echo "package.json found:"
+          echo "package.json:"
           echo "$PACKAGE_JSON"
-          echo ""
-          echo "Project directory:"
-          echo "$PROJECT_DIR"
-          echo "=========================================="
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      # =========================================================
-      # 4. VERIFY NODE PROJECT
-      # =========================================================
-      - name: Verify Node project
+      # ==========================================================
+      # 4. SHOW PROJECT
+      # ==========================================================
+      - name: Verify project
+        working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
           set -e
 
-          echo "Checking project..."
+          test -f package.json
 
-          if [ ! -f "$PROJECT_DIR/package.json" ]; then
-            echo "ERROR: package.json not found at:"
-            echo "$PROJECT_DIR/package.json"
-            exit 1
-          fi
-
-          echo "package.json FOUND."
+          echo "Project directory:"
+          pwd
 
           echo ""
-          echo "Project contents:"
-          ls -la "$PROJECT_DIR"
+          echo "Project files:"
+          ls -la
 
-      # =========================================================
+          echo ""
+          echo "package.json:"
+          cat package.json
+
+      # ==========================================================
       # 5. SETUP NODE
-      # =========================================================
+      # ==========================================================
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           package-manager-cache: false
 
-      # =========================================================
+      # ==========================================================
       # 6. CHECK NODE
-      # =========================================================
+      # ==========================================================
       - name: Check Node.js
         run: |
           node --version
           npm --version
 
-      # =========================================================
+      # ==========================================================
       # 7. INSTALL DEPENDENCIES
-      # =========================================================
+      # ==========================================================
       - name: Install dependencies
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
           set -e
 
-          npm install \
-            --legacy-peer-deps \
-            --no-audit \
-            --no-fund
+          if [ -f package-lock.json ]; then
+            npm ci --legacy-peer-deps --no-audit --no-fund
+          else
+            npm install --legacy-peer-deps --no-audit --no-fund
+          fi
 
-      # =========================================================
-      # 8. INSTALL CAPACITOR
-      # =========================================================
+      # ==========================================================
+      # 8. INSTALL CAPACITOR 7
+      # ==========================================================
       - name: Install Capacitor
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
@@ -167,33 +145,52 @@ jobs:
           set -e
 
           npm install \
-            @capacitor/core \
-            @capacitor/cli \
-            @capacitor/android \
+            @capacitor/core@7 \
+            @capacitor/cli@7 \
+            @capacitor/android@7 \
             --save \
             --legacy-peer-deps \
             --no-audit \
             --no-fund
 
-      # =========================================================
-      # 9. TYPE CHECK
-      # =========================================================
-      - name: Type check
+      # ==========================================================
+      # 9. REMOVE OLD CAPACITOR CONFIG
+      # ==========================================================
+      - name: Remove old Capacitor configuration
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          rm -f capacitor.config.ts
+          rm -f capacitor.config.js
+          rm -f capacitor.config.mjs
+          rm -f capacitor.config.cjs
+
+          echo "Old Capacitor configuration removed."
+
+      # ==========================================================
+      # 10. CREATE JSON CAPACITOR CONFIG
+      # ==========================================================
+      - name: Create Capacitor JSON configuration
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
           set -e
 
-          if npm run | grep -q "lint"; then
-            npm run lint
-          else
-            echo "No lint script found."
-            echo "Skipping type check."
-          fi
+          cat > capacitor.config.json <<'EOF'
+          {
+            "appId": "com.pharmabill.app",
+            "appName": "PharmaBill",
+            "webDir": "dist",
+            "bundledWebRuntime": false
+          }
+          EOF
 
-      # =========================================================
-      # 10. BUILD WEB APPLICATION
-      # =========================================================
+          echo "Created capacitor.config.json:"
+          cat capacitor.config.json
+
+      # ==========================================================
+      # 11. BUILD WEB APP
+      # ==========================================================
       - name: Build web application
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
@@ -204,53 +201,60 @@ jobs:
 
           if [ ! -d "dist" ]; then
             echo "ERROR: dist directory was not created."
+            echo "Checking available directories:"
+            find . -maxdepth 2 -type d | sort
             exit 1
           fi
 
           echo "Web build successful."
+          echo "dist contents:"
+          find dist -maxdepth 2 -type f | head -100
 
-      # =========================================================
-      # 11. CREATE CAPACITOR CONFIG
-      # =========================================================
-      - name: Create Capacitor config
-        working-directory: ${{ env.PROJECT_DIR }}
-        shell: bash
-        run: |
-          set -e
-
-          cat > capacitor.config.ts <<'EOF'
-          import type { CapacitorConfig } from '@capacitor/cli';
-
-          const config: CapacitorConfig = {
-            appId: 'com.pharmabill.app',
-            appName: 'PharmaBill',
-            webDir: 'dist'
-          };
-
-          export default config;
-          EOF
-
-          echo "Capacitor configuration created."
-
-      # =========================================================
-      # 12. CREATE ANDROID PLATFORM
-      # =========================================================
-      - name: Add Android platform
+      # ==========================================================
+      # 12. REMOVE BROKEN ANDROID DIRECTORY
+      # ==========================================================
+      - name: Prepare Android platform
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
           set -e
 
           if [ -d "android" ]; then
-            echo "Android platform already exists."
-          else
-            echo "Creating Android platform..."
-            npx cap add android
+            echo "Removing old Android platform..."
+            rm -rf android
           fi
 
-      # =========================================================
-      # 13. SYNC CAPACITOR
-      # =========================================================
+          echo "Android directory prepared."
+
+      # ==========================================================
+      # 13. ADD ANDROID
+      # ==========================================================
+      - name: Add Android platform
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -e
+
+          npx cap add android
+
+      # ==========================================================
+      # 14. SETUP JAVA
+      # ==========================================================
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # ==========================================================
+      # 15. SETUP ANDROID SDK
+      # ==========================================================
+      - name: Setup Android
+        uses: android-actions/setup-android@v3
+
+      # ==========================================================
+      # 16. SYNC ANDROID
+      # ==========================================================
       - name: Sync Android
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
@@ -259,24 +263,9 @@ jobs:
 
           npx cap sync android
 
-      # =========================================================
-      # 14. SETUP JAVA
-      # =========================================================
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-
-      # =========================================================
-      # 15. SETUP ANDROID
-      # =========================================================
-      - name: Setup Android
-        uses: android-actions/setup-android@v3
-
-      # =========================================================
-      # 16. BUILD DEBUG APK
-      # =========================================================
+      # ==========================================================
+      # 17. BUILD DEBUG APK
+      # ==========================================================
       - name: Build Android APK
         working-directory: ${{ env.PROJECT_DIR }}/android
         shell: bash
@@ -289,10 +278,10 @@ jobs:
             --no-daemon \
             --stacktrace
 
-      # =========================================================
-      # 17. FIND APK
-      # =========================================================
-      - name: Find APK
+      # ==========================================================
+      # 18. FIND APK
+      # ==========================================================
+      - name: Find generated APK
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
@@ -311,12 +300,10 @@ jobs:
             | head -n 1)
 
           if [ -z "$APK" ]; then
-            echo ""
-            echo "ERROR: APK was not created."
+            echo "ERROR: APK was not generated."
             exit 1
           fi
 
-          echo ""
           echo "APK found:"
           echo "$APK"
 
@@ -328,9 +315,9 @@ jobs:
           echo "Final APK:"
           ls -lh release/PharmaBill.apk
 
-      # =========================================================
-      # 18. UPLOAD APK
-      # =========================================================
+      # ==========================================================
+      # 19. UPLOAD ACTUAL APK
+      # ==========================================================
       - name: Upload PharmaBill APK
         uses: actions/upload-artifact@v4
         with:
@@ -339,19 +326,17 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # =========================================================
-      # 19. BUILD SUMMARY
-      # =========================================================
+      # ==========================================================
+      # 20. BUILD SUMMARY
+      # ==========================================================
       - name: Build summary
         run: |
-          echo ""
-          echo "=========================================="
+          echo "=============================================="
           echo "       PHARMABILL APK BUILD SUCCESS"
-          echo "=========================================="
+          echo "=============================================="
           echo ""
-          echo "Artifact:"
-          echo "PharmaBill-APK"
+          echo "Artifact: PharmaBill-APK"
+          echo "File: PharmaBill.apk"
           echo ""
-          echo "APK:"
-          echo "PharmaBill.apk"
-          echo "=========================================="
+          echo "The APK is available in GitHub Actions Artifacts."
+          echo "=============================================="
